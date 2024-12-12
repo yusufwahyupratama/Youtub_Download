@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #1d3557, #457b9d);
+            background-attachment: fixed; /* Menjaga background tetap di tempat */
+            margin: 5%;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #fff;
+        }
+        .container {
+            background: #f1faee;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            max-width: 500px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 28px;
+            color: #1d3557;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #1d3557;
+        }
+        input[type="text"], select {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        input[type="text"]:focus, select:focus {
+            border-color: #457b9d;
+        }
+        button {
+            background: linear-gradient(135deg, #457b9d, #1d3557);
+            color: #fff;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        .video-preview {
+            margin-top: 20px;
+        }
+        iframe {
+            width: 100%;
+            height: 300px;
+            border-radius: 8px;
+            border: none;
+        }
+        .download-button {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 10px 20px;
+        background-color: #1d3557;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        font-weight: bold;
+        transition: background-color 0.3s ease;
+    }
+
+    .download-button:hover {
+        background-color: #457b9d;
+    }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9f5f1;
+            color: #1d3557;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+        .result a {
+            color: #1d3557;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .result a button {
+            margin-top: 10px;
+        }
+        .result a:hover {
+            text-decoration: underline;
+        }
+        .result button {
+        background: linear-gradient(135deg, #1d3557, #457b9d);
+        color: #fff;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+
+        .result button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        footer {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #457b9d;
+        }
+    </style>
+    <script>
+        function updateVideoPreview() {
+            const urlInput = document.getElementById('url');
+            const iframe = document.getElementById('videoPreview');
+            const url = urlInput.value;
+
+            if (url) {
+                const videoId = getYoutubeVideoId(url);
+                if (videoId) {
+                    iframe.src = `https://www.youtube.com/embed/${videoId}`;
+                    iframe.style.display = 'block';
+                } else {
+                    iframe.style.display = 'none';
+                }
+            } else {
+                iframe.style.display = 'none';
+            }
+        }
+
+        function getYoutubeVideoId(url) {
+            const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+            const match = url.match(regex);
+            return match ? match[1] : null;
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 YouTube Downloader</h1>
+        <form action="/download" method="POST">
+            <label for="url">Enter YouTube URL:</label>
+            <input type="text" id="url" name="url" placeholder="Paste YouTube link here" required oninput="updateVideoPreview()">
+
+            <label for="format">Choose Format:</label>
+            <select id="format" name="format">
+                <option value="video">Video</option>
+                <option value="audio">Audio</option>
+            </select>
+
+            <button type="submit">Download Now</button>
+        </form>
+
+        <div class="video-preview">
+            <iframe id="videoPreview" style="display: none;"></iframe>
+        </div>
+
+        <div class="result">
+            {% if message %}
+                <p>{{ message }}</p>
+                {% if folder_name %}
+                    <p>Folder: {{ folder_name }}</p>
+                {% endif %}
+                {% if file_name %}
+                <div class="result">
+                    <p>{{ message }}</p>
+                    <p>File Path: <strong>{{ file_name }}</strong></p>
+                    <a href="{{ url_for('download_file', filename=file_name) }}" class="download-button">Download File</a>
+                </div>
+                {% endif %}
+            {% endif %}
+        </div>
+        
+
+        <footer>
+            &copy; 2024 YouTube Downloader | Built with Yusuf wahyu ❤️
+        </footer>
+    </div>
+
+</body>
+</html>
