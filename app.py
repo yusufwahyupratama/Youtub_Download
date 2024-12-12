@@ -7,10 +7,10 @@ from urllib.parse import unquote
 
 app = Flask(__name__)
 
-base_download_folder = Path(r"C:\Users\yusuf\Downloads\YouTubeDownloads")
+# base_download_folder = Path(r"C:\Users\yusuf\Downloads\YouTubeDownloads")
 
 # Folder dasar untuk menyimpan unduhan
-# base_download_folder = Path.home() / "Downloads" / "YouTubeDownloads"
+base_download_folder = Path.home() / "Downloads" / "YouTubeDownloads"
 
 # Konfigurasi logging
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +26,12 @@ def sanitize_filename(filename):
 
 def download_video(url):
     """Mengunduh video dan menyimpannya di folder 'Videos'."""
+    folder_path = base_download_folder / "Videos"
+    create_folder(folder_path)  # Pastikan folder dibuat
+    
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
-        'outtmpl': f'{base_download_folder}/Videos/%(playlist_title)s/%(title)s.%(ext)s',
+        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s',
         'noplaylist': False,
     }
     try:
@@ -36,7 +39,15 @@ def download_video(url):
             info_dict = ydl.extract_info(url, download=True)
             uploader = info_dict.get('uploader', 'UnknownUploader')
             title = info_dict.get('title', 'UnknownTitle')
-            return f"Videos/{uploader}/{sanitize_filename(title)}.mp4"
+            ext = info_dict.get('ext', 'mp4')  # Default ke mp4 jika tidak diketahui
+            file_path = folder_path / uploader / sanitize_filename(f"{title}.{ext}")
+            logging.info(f"Video downloaded at: {file_path}")
+            
+            if not file_path.exists():
+                logging.error(f"File not found after download: {file_path}")
+                raise FileNotFoundError(f"Video file {file_path} does not exist.")
+            
+            return str(file_path.relative_to(base_download_folder))
     except Exception as e:
         logging.error(f"Error downloading video: {e}")
         raise
@@ -78,6 +89,7 @@ def download():
     try:
         if format_type == 'video':
             file_name = download_video(url)
+            logging.info(f"Video downloaded: {file_name}")
             message = "Video successfully downloaded!"
         elif format_type == 'audio':
             file_name = download_audio(url)
@@ -94,20 +106,14 @@ def download():
 def download_file(filename):
     """Fungsi untuk mengunduh file dari server."""
     try:
-        # Decode nama file dari URL
-        decoded_filename = unquote(filename)
-        logging.info(f"Decoded filename: {decoded_filename}")
-        
-        # Tentukan path file
-        file_path = base_download_folder / decoded_filename
-        logging.info(f"Full path to the file: {file_path}")
+        decoded_filename = sanitize_filename(unquote(filename))
+        file_path = base_download_folder / Path(decoded_filename)
+        logging.info(f"Decoded path: {decoded_filename}")
 
-        # Cek apakah file ada
         if not file_path.exists():
-            logging.error(f"File {decoded_filename} not found in {base_download_folder}")
-            return "File not found", 404  # Jika file tidak ada
+            logging.error(f"File not found: {file_path}")
+            return "File not found", 404
         
-        # Kirim file jika ditemukan
         return send_from_directory(file_path.parent, file_path.name, as_attachment=True)
     except Exception as e:
         logging.error(f"Error downloading file: {e}")
