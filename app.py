@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, send_from_directory, url_for
 import yt_dlp
 from pathlib import Path
 import os
+import json
 import sqlite3
 import logging
 
@@ -27,6 +28,7 @@ def init_db():
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         title TEXT,
                         uploader TEXT,
+                        playlist_title TEXT,
                         file_path TEXT,
                         format TEXT,
                         url TEXT
@@ -37,13 +39,14 @@ def init_db():
 init_db()
 
 # Fungsi untuk menyimpan metadata
-def save_metadata(title, uploader, file_path, file_format, url):
+def save_metadata(title, uploader, playlist_title, file_path, file_format, url):
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO downloads (title, uploader, file_path, format, url) 
-                      VALUES (?, ?, ?, ?, ?)''', (title, uploader, file_path, file_format, url))
+    cursor.execute('''INSERT INTO downloads (title, uploader, playlist_title, file_path, format, url) 
+                  VALUES (?, ?, ?, ?, ?, ?)''', (title, uploader, playlist_title, file_path, file_format, url))
     conn.commit()
     conn.close()
+
 
 # Fungsi untuk mengambil metadata
 def get_metadata():
@@ -61,56 +64,124 @@ def create_folder(path):
 
 # Mengunduh video
 def download_video(url):
+    """Mengunduh video atau playlist video."""
     folder_path = base_download_folder / "Videos"
     create_folder(folder_path)
 
-    ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
-        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s'
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            title = info_dict.get('title', 'UnknownTitle')
-            uploader = info_dict.get('uploader', 'UnknownUploader')
-            ext = info_dict.get('ext', 'mp4')
-            file_path = f"Videos/{uploader}.{title}.{ext}"
+        # Ambil metadata terlebih dahulu tanpa mengunduh
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info_dict = ydl.extract_info(url, download=False)
+            is_playlist = 'entries' in info_dict and info_dict['entries'] is not None
 
-            save_metadata(title, uploader, file_path, "video", url)
-            return file_path
+            # Tentukan folder berdasarkan jenis (playlist atau tunggal)
+            if is_playlist:  # Playlist
+                playlist_title = info_dict.get('playlist_title') or info_dict['entries'][0].get('title', 'UnnamedPlaylist')
+                video_folder = folder_path / playlist_title
+            else:  # Video tunggal
+                uploader = info_dict.get('uploader') or 'UnknownUploader'
+                video_folder = folder_path / uploader
+
+            create_folder(video_folder)
+
+            # Atur ulang `outtmpl` untuk proses unduhan
+            ydl_opts = {
+                'format': 'bestvideo+bestaudio/best',
+                'outtmpl': f'{video_folder}/%(title)s.%(ext)s',
+            }
+
+            # Unduh video atau playlist
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
+                result = ydl_download.extract_info(url, download=True)
+
+            # Proses setiap video dalam playlist atau video tunggal
+            if is_playlist:
+                for entry in result['entries']:
+                    if entry:
+                        process_single_video(entry, video_folder, url, is_playlist=True)
+            else:
+                process_single_video(result, video_folder, url, is_playlist=False)
+
     except Exception as e:
         logging.error(f"Error downloading video: {e}")
         raise
 
+
+def process_single_video(info_dict, video_folder, url, is_playlist):
+    """Memproses satu video dan menyimpan metadata."""
+    title = info_dict.get('title', 'UnknownTitle')
+    uploader = info_dict.get('uploader', 'UnknownUploader')
+    playlist_title = info_dict.get('playlist_title', None) if is_playlist else None
+    ext = info_dict.get('ext', 'mp4')
+
+    # Buat path file untuk video
+    file_path = video_folder / f"{title}.{ext}"
+
+    # Simpan metadata ke database
+    save_metadata(title, uploader, playlist_title or title, str(file_path), "video", url)
+
 # Mengunduh audio
 def download_audio(url):
+    """Mengunduh audio atau playlist audio."""
     folder_path = base_download_folder / "Audios"
     create_folder(folder_path)
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            title = info_dict.get('title', 'UnknownTitle')
-            uploader = info_dict.get('uploader', 'UnknownUploader')
-            ext = 'mp3'
-            file_path = f"Audios/{uploader}.{title}.{ext}"
+        # Ambil metadata terlebih dahulu tanpa mengunduh
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info_dict = ydl.extract_info(url, download=False)
+            is_playlist = 'entries' in info_dict and info_dict['entries'] is not None
 
-            save_metadata(title, uploader, file_path, "audio", url)
-            return file_path
+            # Tentukan folder berdasarkan jenis (playlist atau tunggal)
+            if is_playlist:  # Playlist
+                playlist_title = info_dict.get('playlist_title') or info_dict['entries'][0].get('title', 'UnnamedPlaylist')
+                audio_folder = folder_path / playlist_title
+            else:  # Audio tunggal
+                uploader = info_dict.get('uploader') or 'UnknownUploader'
+                audio_folder = folder_path / uploader
+
+            create_folder(audio_folder)
+
+            # Atur ulang `outtmpl` untuk proses unduhan
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': f'{audio_folder}/%(title)s.%(ext)s',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }]
+            }
+
+            # Unduh audio atau playlist
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
+                result = ydl_download.extract_info(url, download=True)
+
+            # Proses setiap audio dalam playlist atau audio tunggal
+            if is_playlist:
+                for entry in result['entries']:
+                    if entry:
+                        process_single_audio(entry, audio_folder, url, is_playlist=True)
+            else:
+                process_single_audio(result, audio_folder, url, is_playlist=False)
+
     except Exception as e:
         logging.error(f"Error downloading audio: {e}")
         raise
+
+
+def process_single_audio(info_dict, audio_folder, url, is_playlist):
+    """Memproses satu audio dan menyimpan metadata."""
+    title = info_dict.get('title', 'UnknownTitle')
+    uploader = info_dict.get('uploader', 'UnknownUploader')
+    playlist_title = info_dict.get('playlist_title', None) if is_playlist else None
+    ext = 'mp3'
+
+    # Buat path file untuk audio
+    file_path = audio_folder / f"{title}.{ext}"
+
+    # Simpan metadata ke database
+    save_metadata(title, uploader, playlist_title or title, str(file_path), "audio", url)
 
 @app.route('/')
 def index():
