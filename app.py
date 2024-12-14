@@ -1,75 +1,113 @@
+# app.py
+
 from flask import Flask, render_template, request, send_from_directory, url_for
 import yt_dlp
 from pathlib import Path
 import os
+import sqlite3
 import logging
-from urllib.parse import unquote
 
 app = Flask(__name__)
 
-# base_download_folder = Path(r"C:\Users\yusuf\Downloads\YouTubeDownloads")
-
 # Folder dasar untuk menyimpan unduhan
-base_download_folder = Path.home() / "Downloads" / "YouTubeDownloads"
+base_download_folder = Path("downloads")
+base_download_folder.mkdir(parents=True, exist_ok=True)
+
+# Database file
+db_file = base_download_folder / "metadata.db"
 
 # Konfigurasi logging
 logging.basicConfig(level=logging.INFO)
 
+# Inisialisasi database
+def init_db():
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS downloads (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT,
+                        uploader TEXT,
+                        file_path TEXT,
+                        format TEXT,
+                        url TEXT
+                    )''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Fungsi untuk menyimpan metadata
+def save_metadata(title, uploader, file_path, file_format, url):
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute('''INSERT INTO downloads (title, uploader, file_path, format, url) 
+                      VALUES (?, ?, ?, ?, ?)''', (title, uploader, file_path, file_format, url))
+    conn.commit()
+    conn.close()
+
+# Fungsi untuk mengambil metadata
+def get_metadata():
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM downloads')
+    data = cursor.fetchall()
+    conn.close()
+    return data
+
+# Membuat folder jika belum ada
 def create_folder(path):
-    """Membuat folder jika belum ada."""
     if not path.exists():
         path.mkdir(parents=True, exist_ok=True)
 
-def sanitize_filename(filename):
-    """Menghapus karakter yang tidak diinginkan seperti spasi atau simbol aneh."""
-    return filename.replace('%20', ' ').replace('"', '').replace("'", '').strip()
-
+# Mengunduh video
 def download_video(url):
-    """Mengunduh video dan menyimpannya di folder 'Videos'."""
     folder_path = base_download_folder / "Videos"
-    create_folder(folder_path)  # Pastikan folder dibuat
-    
+    create_folder(folder_path)
+
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
-        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s',
-        'noplaylist': False,
+        'outtmpl': f'{folder_path}/%(title)s.%(ext)s'
     }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
-            uploader = info_dict.get('uploader', 'UnknownUploader')
             title = info_dict.get('title', 'UnknownTitle')
-            ext = info_dict.get('ext', 'mp4')  # Default ke mp4 jika tidak diketahui
-            file_path = folder_path / uploader / sanitize_filename(f"{title}.{ext}")
-            logging.info(f"Video downloaded at: {file_path}")
-            
-            if not file_path.exists():
-                logging.error(f"File not found after download: {file_path}")
-                raise FileNotFoundError(f"Video file {file_path} does not exist.")
-            
-            return str(file_path.relative_to(base_download_folder))
+            uploader = info_dict.get('uploader', 'UnknownUploader')
+            ext = info_dict.get('ext', 'mp4')
+            file_path = f"Videos/{title}.{ext}"
+
+            save_metadata(title, uploader, file_path, "video", url)
+            return file_path
     except Exception as e:
         logging.error(f"Error downloading video: {e}")
         raise
 
+# Mengunduh audio
 def download_audio(url):
-    """Mengunduh audio dan menyimpannya di folder 'Audios'."""
+    folder_path = base_download_folder / "Audios"
+    create_folder(folder_path)
+
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': f'{base_download_folder}/Audios/%(uploader)s/%(title)s.%(ext)s',
+        'outtmpl': f'{folder_path}/%(title)s.%(ext)s',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
-        }],
-        'noplaylist': False,
+        }]
     }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
-            uploader = info_dict.get('uploader', 'UnknownUploader')
             title = info_dict.get('title', 'UnknownTitle')
-            return f"Audios/{uploader}/{sanitize_filename(title)}.mp3"
+            uploader = info_dict.get('uploader', 'UnknownUploader')
+            ext = 'mp3'
+            file_path = f"Audios/{title}.{ext}"
+
+            save_metadata(title, uploader, file_path, "audio", url)
+            return file_path
     except Exception as e:
         logging.error(f"Error downloading audio: {e}")
         raise
@@ -80,7 +118,6 @@ def index():
 
 @app.route('/download', methods=['POST'])
 def download():
-    """Mengunduh video/audio berdasarkan URL dan format yang dipilih."""
     url = request.form['url']
     format_type = request.form['format']
     file_name = None
@@ -89,7 +126,6 @@ def download():
     try:
         if format_type == 'video':
             file_name = download_video(url)
-            logging.info(f"Video downloaded: {file_name}")
             message = "Video successfully downloaded!"
         elif format_type == 'audio':
             file_name = download_audio(url)
@@ -99,25 +135,21 @@ def download():
     except Exception as e:
         message = f"An error occurred: {e}"
 
-    # Kirim nama file yang diunduh ke template
     return render_template('index.html', message=message, file_name=file_name)
+
+@app.route('/list_downloads')
+def list_downloads():
+    metadata = get_metadata()
+    return render_template('list_downloads.html', downloads=metadata)
 
 @app.route('/download_file/<path:filename>')
 def download_file(filename):
-    """Fungsi untuk mengunduh file dari server."""
-    try:
-        decoded_filename = sanitize_filename(unquote(filename))
-        file_path = base_download_folder / Path(decoded_filename)
-        logging.info(f"Decoded path: {decoded_filename}")
+    file_path = base_download_folder / filename
 
-        if not file_path.exists():
-            logging.error(f"File not found: {file_path}")
-            return "File not found", 404
-        
-        return send_from_directory(file_path.parent, file_path.name, as_attachment=True)
-    except Exception as e:
-        logging.error(f"Error downloading file: {e}")
-        return "An error occurred while trying to download the file.", 500
+    if not file_path.exists():
+        return "File not found", 404
+
+    return send_from_directory(file_path.parent, file_path.name, as_attachment=True)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

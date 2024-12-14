@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>List of Downloads</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Daftar Unduhan</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>URL</th>
+                    <th>Filename</th>
+                    <th>Folder</th>
+                    <th>Format</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for download in downloads %}
+                <tr>
+                    <td>{{ download[0] }}</td>
+                    <td><a href="{{ download[1] }}" target="_blank">{{ download[1] }}</a></td>
+                    <td>{{ download[2] }}</td>
+                    <td>{{ download[3] }}</td>
+                    <td>{{ download[4] }}</td>
+                    <td><a href="/download_file/{{ download[2] }}">Download</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/">Kembali ke Halaman Utama</a>
+    </div>
+</body>
+</html>
