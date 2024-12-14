@@ -66,7 +66,7 @@ def download_video(url):
 
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
-        'outtmpl': f'{folder_path}/%(title)s.%(ext)s'
+        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s'
     }
 
     try:
@@ -75,7 +75,7 @@ def download_video(url):
             title = info_dict.get('title', 'UnknownTitle')
             uploader = info_dict.get('uploader', 'UnknownUploader')
             ext = info_dict.get('ext', 'mp4')
-            file_path = f"Videos/{title}.{ext}"
+            file_path = f"Videos/{uploader}.{title}.{ext}"
 
             save_metadata(title, uploader, file_path, "video", url)
             return file_path
@@ -90,7 +90,7 @@ def download_audio(url):
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': f'{folder_path}/%(title)s.%(ext)s',
+        'outtmpl': f'{folder_path}/%(uploader)s/%(title)s.%(ext)s',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -104,7 +104,7 @@ def download_audio(url):
             title = info_dict.get('title', 'UnknownTitle')
             uploader = info_dict.get('uploader', 'UnknownUploader')
             ext = 'mp3'
-            file_path = f"Audios/{title}.{ext}"
+            file_path = f"Audios/{uploader}.{title}.{ext}"
 
             save_metadata(title, uploader, file_path, "audio", url)
             return file_path
