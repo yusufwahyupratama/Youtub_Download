@@ -4,6 +4,7 @@ import threading
 import queue
 import json
 import os
+import webbrowser
 from datetime import datetime
 import yt_dlp
 from yt_dlp.utils import remove_terminal_sequences
@@ -17,6 +18,7 @@ class YouTubeDownloaderApp:
         self.download_mode = tk.StringVar(value="MP3")
         self.setup_ui()
         self.history_file = "history.json"
+        self.history_lock = threading.RLock()  # Menggunakan RLock agar reentrant
         self.load_history()
 
     def setup_ui(self):
@@ -31,12 +33,16 @@ class YouTubeDownloaderApp:
         self.notebook = ttk.Notebook(self.root)
         self.download_tab = ttk.Frame(self.notebook)
         self.history_tab = ttk.Frame(self.notebook)
+        self.youtube_tab = ttk.Frame(self.notebook)
+
         self.notebook.add(self.download_tab, text="Download")
         self.notebook.add(self.history_tab, text="History")
+        self.notebook.add(self.youtube_tab, text="YouTube")
         self.notebook.pack(expand=True, fill="both")
 
         self.setup_download_tab()
         self.setup_history_tab()
+        self.setup_youtube_tab()
 
     def setup_download_tab(self):
         # Frame untuk input URL dan tombol unduh
@@ -82,9 +88,13 @@ class YouTubeDownloaderApp:
         self.check_queue()
 
     def setup_history_tab(self):
+        # Frame untuk Treeview dan tombol hapus
+        top_frame = ttk.Frame(self.history_tab)
+        top_frame.pack(side="top", fill="both", expand=True)
+
         # Treeview untuk riwayat unduhan
         columns = ("#1", "#2", "#3", "#4")
-        self.history_tree = ttk.Treeview(self.history_tab, columns=columns, show="headings")
+        self.history_tree = ttk.Treeview(top_frame, columns=columns, show="headings")
         self.history_tree.heading("#1", text="Tanggal")
         self.history_tree.heading("#2", text="Judul")
         self.history_tree.heading("#3", text="Status")
@@ -99,6 +109,21 @@ class YouTubeDownloaderApp:
         
         self.history_tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
+
+        # Tombol hapus di bagian bawah Treeview
+        btn_frame = ttk.Frame(self.history_tab)
+        btn_frame.pack(fill="x", pady=5)
+        delete_btn = ttk.Button(btn_frame, text="Hapus History", command=self.delete_selected_history)
+        delete_btn.pack(side="left", padx=10)
+
+    def setup_youtube_tab(self):
+        label = ttk.Label(self.youtube_tab, text="Klik tombol di bawah untuk membuka YouTube di browser Anda.")
+        label.pack(pady=10)
+        open_youtube_btn = ttk.Button(self.youtube_tab, text="Buka YouTube", command=self.open_youtube)
+        open_youtube_btn.pack(pady=10)
+
+    def open_youtube(self):
+        webbrowser.open("https://www.youtube.com")
 
     def toggle_mode(self):
         # Fungsi untuk berganti mode antara MP3 dan MP4
@@ -181,10 +206,7 @@ class YouTubeDownloaderApp:
                 ydl_opts['outtmpl'] = os.path.join(save_dir, f"{info.get('title', 'Playlist')}/%(playlist_index)s - %(title)s.%(ext)s")
             else:
                 # Jika video individu
-                if self.download_mode.get() == "MP3":
-                    ydl_opts['outtmpl'] = os.path.join(save_dir, f"%(uploader)s - %(title)s.%(ext)s")
-                else:
-                    ydl_opts['outtmpl'] = os.path.join(save_dir, f"%(uploader)s - %(title)s.%(ext)s")
+                ydl_opts['outtmpl'] = os.path.join(save_dir, f"%(uploader)s - %(title)s.%(ext)s")
             
             # Proses unduhan
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -241,27 +263,23 @@ class YouTubeDownloaderApp:
         self.download_btn.config(state="normal")
         self.url_entry.delete(0, "end")
         for key, label in self.info_labels.items():
-            label.config(text=f"{key.capitalize()}: -")
+            label.config(text=label.cget("text").split(":")[0] + ": -")
 
     def format_duration(self, seconds):
         return f"{seconds // 3600:02}:{(seconds % 3600) // 60:02}:{seconds % 60:02}"
 
     def load_history(self):
-        try:
-            with open(self.history_file, 'r') as f:
-                self.history = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.history = []
+        with self.history_lock:
+            try:
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    self.history = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                self.history = []
         self.update_history_tree()
 
     def add_to_history(self, url, title, status):
-        entry = {
-            'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'url': url,
-            'title': title,
-            'status': status
-        }
-        self.history.insert(0, entry)
+        self.history.insert(0, {'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                  'url': url, 'title': title, 'status': status})
         self.update_history_tree()
         self.save_history()
 
@@ -271,8 +289,31 @@ class YouTubeDownloaderApp:
             self.history_tree.insert("", "end", values=(item['date'], item['title'], item['status'], item['url']))
 
     def save_history(self):
-        with open(self.history_file, 'w') as f:
-            json.dump(self.history, f)
+        # Jadwalkan operasi penyimpanan di main thread untuk menghindari error
+        self.root.after(0, self._save_history)
+
+    def _save_history(self):
+        with self.history_lock:
+            try:
+                with open(self.history_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.history, f, indent=4)
+            except OSError as e:
+                print(f"Error saat menyimpan history: {e}")
+
+    def delete_selected_history(self):
+        selected = self.history_tree.selection()
+        if not selected:
+            messagebox.showwarning("Peringatan", "Pilih entri history yang ingin dihapus!")
+            return
+
+        for sel in selected:
+            values = self.history_tree.item(sel, "values")
+            self.history = [entry for entry in self.history 
+                            if not (entry['date'] == values[0] and entry['title'] == values[1])]
+        
+        self.update_history_tree()
+        self.save_history()
+        messagebox.showinfo("Info", "Entri history telah dihapus.")
 
 if __name__ == "__main__":
     root = tk.Tk()
